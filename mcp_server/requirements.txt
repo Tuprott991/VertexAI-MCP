@@ -29,3 +29,8 @@ uv==0.6.6
 uvicorn==0.34.0
 websockets==14.2
 wheel==0.45.1
+asyncpg==0.27.0
+# Cloud SQL dependencies for JSON credential authentication
+google-auth==2.38.0
+google-cloud-sql-connector==1.0.0
+pg8000==1.30.3

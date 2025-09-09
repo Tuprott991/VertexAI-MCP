@@ -39,11 +39,9 @@ from mcp.server.sse import SseServerTransport  # The SSE transport layer
 from starlette.applications import Starlette  # Web framework to define routes
 from starlette.routing import Route, Mount  # Routing for HTTP and message endpoints
 from starlette.requests import Request  # HTTP request objects
-# PostgreSQL
-import asyncpg  # Async PostgreSQL client library
-import asyncio
 
 import uvicorn  # ASGI server to run the Starlette app
+
 
 # --------------------------------------------------------------------------------------
 # STEP 1: Initialize FastMCP instance — this acts as your "tool server"

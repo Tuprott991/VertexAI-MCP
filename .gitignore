@@ -1,0 +1,4 @@
+/mcp_server/.env.example
+/mcp_server/.env
+/mcp_server/CLOUD_SQL_SETUP.md
+/mcp_server/documents/*
