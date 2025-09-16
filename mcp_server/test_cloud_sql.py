@@ -15,7 +15,7 @@ async def test_cloud_sql_connection():
     """Test Cloud SQL connection with JSON credentials."""
     try:
         from cloud_sql_auth import CloudSQLAuth, get_cloud_sql_connection_string
-        from database import db_pool, test_connection
+        from mcp_server.database_old import db_pool, test_connection
         
         print("Testing Cloud SQL PostgreSQL connection with JSON credentials...")
         

@@ -2,3 +2,7 @@
 /mcp_server/.env
 /mcp_server/CLOUD_SQL_SETUP.md
 /mcp_server/documents/*
+/mcp_client/.env.example
+/mcp_client/.env
+/mcp_client/__pycache__/*
+/mcp_client/venv/*
