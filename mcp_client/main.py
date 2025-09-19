@@ -31,7 +31,7 @@ from .config import (
     HealthResponse,
     ErrorResponse
 )
-from .insurance_service import InsuranceService, InsuranceServiceError
+from .services import InsuranceService, InsuranceServiceError
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.log_level.upper()))

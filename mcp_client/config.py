@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -19,7 +19,7 @@ class VertexAIConfig(BaseModel):
     """Vertex AI configuration model"""
     project_id: str = Field(..., description="Google Cloud Project ID")
     location: str = Field(default="us-central1", description="Vertex AI location")
-    model_name: str = Field(default="gemini-2.0-flash-exp", description="Gemini model name")
+    model_name: str = Field(default="gemini-2.5-flash", description="Gemini model name")
     credentials_path: Optional[str] = Field(None, description="Path to service account JSON")
     max_tokens: int = Field(default=8192, description="Maximum tokens for response")
     temperature: float = Field(default=0.7, description="Temperature for generation")
@@ -28,18 +28,22 @@ class VertexAIConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    """Database configuration model"""
-    host: str = Field(default="localhost", description="Database host")
-    port: int = Field(default=5432, description="Database port")
-    name: str = Field(default="insurance_mcp", description="Database name")
-    user: str = Field(default="postgres", description="Database user")
+    host: str = Field(..., description="Database host")
+    port: int = Field(5432, description="Database port")
+    name: str = Field(..., description="Database name")
+    user: str = Field(..., description="Database user")
     password: str = Field(..., description="Database password")
+    sslmode: str = Field("prefer", description="SSL mode")
+    channel_binding: str = Field("prefer", description="Channel binding")
     
     @property
     def connection_string(self) -> str:
-        """Generate database connection string"""
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
-
+        """Generate PostgreSQL connection string with SSL parameters"""
+        return (
+            f"postgresql://{self.user}:{self.password}"
+            f"@{self.host}:{self.port}/{self.name}"
+            f"?sslmode={self.sslmode}&channel_binding={self.channel_binding}"
+        )
 
 class MCPConfig(BaseModel):
     """MCP server configuration model"""
@@ -49,15 +53,16 @@ class MCPConfig(BaseModel):
     connection_timeout: int = Field(default=30, description="Connection timeout in seconds")
     retry_attempts: int = Field(default=3, description="Number of retry attempts")
 
-
+# This is expose API to Prudaily
 class APIConfig(BaseModel):
     """API server configuration model"""
     host: str = Field(default="0.0.0.0", description="API host")
     port: int = Field(default=8080, description="API port")
+    # Maybe this this cors use only for Prudaily frontend
     cors_origins: List[str] = Field(default=["*"], description="CORS allowed origins")
     debug: bool = Field(default=False, description="Debug mode")
     
-    @validator('cors_origins', pre=True)
+    @field_validator('cors_origins', pre=True)
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(',')]
@@ -130,7 +135,7 @@ class ChatMessage(BaseModel):
     content: str = Field(..., description="Message content")
     timestamp: Optional[datetime] = Field(default_factory=datetime.now, description="Message timestamp")
     
-    @validator('role')
+    @field_validator('role')
     def validate_role(cls, v):
         if v not in ['user', 'assistant', 'system']:
             raise ValueError('Role must be user, assistant, or system')
@@ -145,7 +150,7 @@ class ChatRequest(BaseModel):
     include_history: bool = Field(default=True, description="Include chat history in context")
     max_history: int = Field(default=10, description="Maximum history messages to include")
     
-    @validator('message')
+    @field_validator('message')
     def validate_message(cls, v):
         if not v.strip():
             raise ValueError('Message cannot be empty')

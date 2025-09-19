@@ -1,7 +1,11 @@
-# MCP Client Requirements - Updated for Vertex AI Integration
+# MCP Client Requirements - Updated for Pydantic AI + Vertex AI Integration
 
 # Core MCP dependencies
 mcp>=1.0.0
+
+# Pydantic AI Framework
+pydantic-ai>=0.0.7
+pydantic-ai[vertexai]>=0.0.7
 
 # Web framework and HTTP client
 fastapi>=0.104.0

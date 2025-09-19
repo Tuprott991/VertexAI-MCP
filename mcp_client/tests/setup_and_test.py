@@ -86,7 +86,7 @@ async def test_components():
     # Test 4: Insurance Service
     print("\n4️⃣ Testing insurance service...")
     try:
-        from insurance_service import InsuranceService
+        from mcp_client.services import InsuranceService
         
         service = InsuranceService()
         # We won't initialize here as it requires both MCP and Vertex AI
