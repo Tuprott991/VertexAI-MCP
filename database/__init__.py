@@ -8,5 +8,6 @@ __all__ = [
     "format_chat_history",
     "init_document_table",
     "insert_document",
-    "get_list_of_documents"
+    "get_list_of_documents",
+    "get_document_by_code"
 ]

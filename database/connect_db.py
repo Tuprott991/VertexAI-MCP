@@ -3,7 +3,7 @@ from decimal import Decimal
 from dotenv import load_dotenv
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.pool import ConnectionPool
+from psycopg_pool import ConnectionPool
 import atexit
 from contextlib import contextmanager
 import threading

@@ -1,9 +1,16 @@
+import sys
+import os
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 from datetime import datetime
 from typing import List, Dict
-from database.connect_db import get_db_connection
 from uuid import uuid4
+
+# Add parent directory to path for relative imports when running directly
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from database.connect_db import get_db_connection
 
 def init_document_table():
     # Khởi tạo bảng document trong database nếu chưa tồn tại
@@ -32,7 +39,7 @@ def init_document_table():
         conn.commit()
 
 
-def insert_document(name: str, content: str) -> Dict:
+def insert_document(name: str, code: str, content: str) -> Dict:
     """
     Chèn một tài liệu mới vào bảng document
     
@@ -46,8 +53,8 @@ def insert_document(name: str, content: str) -> Dict:
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO document (name, content) VALUES (%s, %s) RETURNING id::text, name, content, created_at",
-                (name, content)
+                "INSERT INTO document (name, code, content) VALUES (%s, %s, %s) RETURNING id::text, code, name, created_at",
+                (name, code, content)
             )
             result = cur.fetchone()
             conn.commit()
@@ -86,7 +93,5 @@ def get_document_by_code(code: str) -> Dict:
             )
             return cur.fetchone()
 
-
-        
-
-init_document_table()
+if __name__ == "__main__":
+    init_document_table()

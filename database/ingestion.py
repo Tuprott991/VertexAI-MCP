@@ -3,8 +3,15 @@ from dotenv import load_dotenv
 from psycopg.rows import dict_row
 from datetime import datetime
 from typing import List, Dict
-from database import insert_document
 
+
+import sys
+import os
+
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from database import insert_document
 
 def read_and_insert_md_file(file_path: str, code: str):
     """
@@ -20,7 +27,7 @@ def read_and_insert_md_file(file_path: str, code: str):
             name = file_path.split('/')[-1]  # Lấy tên file từ đường dẫn
             
             # Chèn vào bảng document
-            document_info = insert_document(name, content)
+            document_info = insert_document(name=name, code=code, content=content)
             print(f"Inserted document: {document_info}")
     except Exception as e:
         print(f"Error reading or inserting document: {e}")
@@ -31,10 +38,6 @@ if __name__ == "__main__":
     # Ví dụ sử dụng
     # Read folder and insert all .md files
     import os
-    folder_path = r'D:/Github Repos/VertexAI-MCP/mcp_server/documents'  # Thay đổi đường dẫn tới thư mục chứa file .md
+    file_path = r'D:/Github Repos/VertexAI-MCP/mcp_server/documents/pru-edu-saver-faq.md'  # Thay đổi đường dẫn tới thư mục chứa file .md
 
-    for filename in os.listdir(folder_path):
-        if filename.endswith('.md'):
-            file_path = os.path.join(folder_path, filename)
-            code = filename[:-3]  # Lấy mã tài liệu từ tên file (bỏ đuôi .md)
-            read_and_insert_md_file(file_path, code)
+    read_and_insert_md_file(file_path, code="pru-edu-saver-faq")
