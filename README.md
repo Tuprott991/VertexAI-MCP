@@ -1,5 +1,4 @@
-# Insurance MCP System - Getting Started
-
+# Insurance MCP System - PoC version
 This guide will help you set up and test the complete Insurance MCP (Model Context Protocol) system.
 
 ## System Architecture
