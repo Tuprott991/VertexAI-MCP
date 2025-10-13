@@ -109,5 +109,5 @@ async def main():
         print("\n✗ Setup needs attention. Please check the errors above.")
         sys.exit(1)
 
-if __name__ == "__main__":
+if __name__ == "__main__":  
     asyncio.run(main())

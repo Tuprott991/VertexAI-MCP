@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8081
 
 # Define the command to run your SSE server.
-CMD ["python", "terminal_server_sse.py"]
+CMD ["python", "see_server.py"]
