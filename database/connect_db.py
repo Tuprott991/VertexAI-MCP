@@ -1,12 +1,30 @@
+"""
+Production-ready async database connection pool using asyncpg.
+
+Features:
+- Async connection pooling with configurable min/max connections
+- Automatic reconnection and health checks
+- Graceful shutdown and cleanup
+- Transaction management with automatic rollback
+- Comprehensive error handling and logging
+- Connection timeout and retry logic
+"""
+
 import os
-from decimal import Decimal
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from typing import Optional, Any
 from dotenv import load_dotenv
-import psycopg
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
-import atexit
-from contextlib import contextmanager
-import threading
+import asyncpg
+from asyncpg.pool import Pool
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -16,105 +34,261 @@ DB_NAME = os.getenv("POSTGRES_DATABASE")
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_HOST = os.getenv("POSTGRES_HOST")
-DB_PORT = os.getenv("POSTGRES_PORT", 5432)
+DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 
 # Connection pool configuration
-MIN_CONNECTIONS = int(os.getenv("DB_MIN_CONNECTIONS", "2"))
+MIN_CONNECTIONS = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
 MAX_CONNECTIONS = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
+CONNECTION_TIMEOUT = int(os.getenv("DB_CONNECTION_TIMEOUT", "30"))
+COMMAND_TIMEOUT = int(os.getenv("DB_COMMAND_TIMEOUT", "60"))
+MAX_QUERIES = int(os.getenv("DB_MAX_QUERIES", "50000"))
+MAX_INACTIVE_CONNECTION_LIFETIME = int(os.getenv("DB_MAX_INACTIVE_LIFETIME", "300"))
 
 # Global connection pool
-_connection_pool = None
-_pool_lock = threading.Lock()
+_connection_pool: Optional[Pool] = None
+_pool_lock = asyncio.Lock()
 
-def _create_connection_pool():
+
+class DatabaseError(Exception):
+    """Base exception for database errors"""
+    pass
+
+
+class ConnectionPoolError(DatabaseError):
+    """Exception for connection pool errors"""
+    pass
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
     """
-    Create and configure the connection pool
+    Initialize a new connection with custom settings.
+    
+    Args:
+        conn: The asyncpg connection to initialize
+    """
+    # Set statement timeout to prevent long-running queries
+    await conn.execute(f"SET statement_timeout = {COMMAND_TIMEOUT * 1000}")
+    # Set timezone
+    await conn.execute("SET timezone = 'UTC'")
+    logger.debug("Connection initialized with custom settings")
+
+
+async def _create_connection_pool() -> Pool:
+    """
+    Create and configure the async connection pool with best practices.
     
     Returns:
-        ConnectionPool: Configured connection pool
-    """
-    conninfo = (
-        f"dbname={DB_NAME} "
-        f"user={DB_USER} "
-        f"password={DB_PASSWORD} "
-        f"host={DB_HOST} "
-        f"port={DB_PORT}"
-    )
-    
-    return ConnectionPool(
-        conninfo=conninfo,
-        min_size=MIN_CONNECTIONS,
-        max_size=MAX_CONNECTIONS,
-        kwargs={"row_factory": dict_row},
-        open=True
-    )
-
-def get_connection_pool():
-    """
-    Get the global connection pool instance (singleton pattern)
-    
-    Returns:
-        ConnectionPool: The connection pool instance
-    """
-    global _connection_pool
-    if _connection_pool is None:
-        with _pool_lock:
-            if _connection_pool is None:
-                try:
-                    _connection_pool = _create_connection_pool()
-                    # Register cleanup function
-                    atexit.register(close_connection_pool)
-                except psycopg.Error as e:
-                    print(f"Error creating connection pool: {e}")
-                    raise
-    return _connection_pool
-
-def close_connection_pool():
-    """
-    Close the connection pool and cleanup resources
-    """
-    global _connection_pool
-    if _connection_pool is not None:
-        _connection_pool.close()
-        _connection_pool = None
-
-@contextmanager
-def get_db_connection():
-    """
-    Get a database connection from the pool
-    
-    Yields:
-        Connection: Database connection object
-    """
-    pool = get_connection_pool()
-    try:
-        with pool.connection() as conn:
-            yield conn
-    except psycopg.Error as e:
-        print(f"Error getting database connection: {e}")
-        raise
-
-# Legacy function for backward compatibility
-def get_db_connection_legacy():
-    """
-    Create a direct connection to the PostgreSQL database (legacy)
-    This function is kept for backward compatibility but should be avoided.
-    Use get_db_connection() context manager instead.
-    
-    Returns:
-        Connection: Database connection object
+        Pool: Configured asyncpg connection pool
+        
+    Raises:
+        ConnectionPoolError: If pool creation fails
     """
     try:
-        return psycopg.connect(
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
+        pool = await asyncpg.create_pool(
             host=DB_HOST,
             port=DB_PORT,
-            row_factory=dict_row
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            min_size=MIN_CONNECTIONS,
+            max_size=MAX_CONNECTIONS,
+            max_queries=MAX_QUERIES,
+            max_inactive_connection_lifetime=MAX_INACTIVE_CONNECTION_LIFETIME,
+            timeout=CONNECTION_TIMEOUT,
+            command_timeout=COMMAND_TIMEOUT,
+            init=_init_connection,
+            # Connection pool will automatically reconnect on connection loss
+            server_settings={
+                'application_name': 'vertexai_mcp',
+                'tcp_keepalives_idle': '30',
+                'tcp_keepalives_interval': '10',
+                'tcp_keepalives_count': '5',
+            }
         )
-    except psycopg.Error as e:
-        print(f"Error connecting to database: {e}")
+        
+        # Test the connection
+        async with pool.acquire() as conn:
+            await conn.fetchval('SELECT 1')
+            
+        logger.info(
+            f"Connection pool created successfully: "
+            f"min={MIN_CONNECTIONS}, max={MAX_CONNECTIONS}"
+        )
+        return pool
+        
+    except Exception as e:
+        logger.error(f"Failed to create connection pool: {e}", exc_info=True)
+        raise ConnectionPoolError(f"Failed to create connection pool: {e}") from e
+
+
+async def get_connection_pool() -> Pool:
+    """
+    Get the global connection pool instance (singleton pattern).
+    Thread-safe and creates pool only once.
+    
+    Returns:
+        Pool: The asyncpg connection pool instance
+        
+    Raises:
+        ConnectionPoolError: If pool cannot be created
+    """
+    global _connection_pool
+    
+    if _connection_pool is None:
+        async with _pool_lock:
+            # Double-check locking pattern
+            if _connection_pool is None:
+                _connection_pool = await _create_connection_pool()
+                
+    return _connection_pool
+
+
+async def close_connection_pool() -> None:
+    """
+    Gracefully close the connection pool and cleanup resources.
+    Should be called on application shutdown.
+    """
+    global _connection_pool
+    
+    if _connection_pool is not None:
+        try:
+            await _connection_pool.close()
+            logger.info("Connection pool closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing connection pool: {e}", exc_info=True)
+        finally:
+            _connection_pool = None
+
+
+@asynccontextmanager
+async def get_db_connection():
+    """
+    Async context manager for acquiring a database connection from the pool.
+    Automatically handles connection release and cleanup.
+    
+    Usage:
+        async with get_db_connection() as conn:
+            result = await conn.fetch('SELECT * FROM table')
+            
+    Yields:
+        asyncpg.Connection: Database connection from the pool
+        
+    Raises:
+        ConnectionPoolError: If connection cannot be acquired
+    """
+    pool = await get_connection_pool()
+    conn = None
+    
+    try:
+        conn = await pool.acquire()
+        yield conn
+    except asyncpg.PostgresError as e:
+        logger.error(f"Database error: {e}", exc_info=True)
+        raise DatabaseError(f"Database operation failed: {e}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
         raise
+    finally:
+        if conn is not None:
+            try:
+                await pool.release(conn)
+            except Exception as e:
+                logger.error(f"Error releasing connection: {e}", exc_info=True)
+
+
+@asynccontextmanager
+async def get_db_transaction():
+    """
+    Async context manager for database transactions with automatic commit/rollback.
+    
+    Usage:
+        async with get_db_transaction() as conn:
+            await conn.execute('INSERT INTO table VALUES ($1)', value)
+            # Automatically commits on success, rolls back on error
+            
+    Yields:
+        asyncpg.Connection: Database connection with active transaction
+        
+    Raises:
+        DatabaseError: If transaction fails
+    """
+    pool = await get_connection_pool()
+    conn = None
+    
+    try:
+        conn = await pool.acquire()
+        async with conn.transaction():
+            yield conn
+    except asyncpg.PostgresError as e:
+        logger.error(f"Transaction failed: {e}", exc_info=True)
+        raise DatabaseError(f"Transaction failed: {e}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error in transaction: {e}", exc_info=True)
+        raise
+    finally:
+        if conn is not None:
+            try:
+                await pool.release(conn)
+            except Exception as e:
+                logger.error(f"Error releasing connection: {e}", exc_info=True)
+
+
+async def health_check() -> bool:
+    """
+    Perform a health check on the database connection pool.
+    
+    Returns:
+        bool: True if healthy, False otherwise
+    """
+    try:
+        async with get_db_connection() as conn:
+            result = await conn.fetchval('SELECT 1')
+            return result == 1
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return False
+
+
+async def execute_with_retry(
+    query: str,
+    *args: Any,
+    max_retries: int = 3,
+    retry_delay: float = 1.0
+) -> Any:
+    """
+    Execute a query with automatic retry logic for transient failures.
+    
+    Args:
+        query: SQL query to execute
+        *args: Query parameters
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay between retries in seconds
+        
+    Returns:
+        Query result
+        
+    Raises:
+        DatabaseError: If all retry attempts fail
+    """
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with get_db_connection() as conn:
+                return await conn.fetch(query, *args)
+        except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError) as e:
+            last_error = e
+            logger.warning(
+                f"Query failed (attempt {attempt + 1}/{max_retries}): {e}"
+            )
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+        except Exception as e:
+            logger.error(f"Non-retryable error: {e}", exc_info=True)
+            raise DatabaseError(f"Query execution failed: {e}") from e
+    
+    raise DatabaseError(
+        f"Query failed after {max_retries} attempts: {last_error}"
+    ) from last_error
 
 
