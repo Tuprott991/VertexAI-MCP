@@ -16,93 +16,68 @@ from google.genai import types
 from google.auth import load_credentials_from_file
 from rich import print
 
+from google.adk.sessions import InMemorySessionService, Session
+from google.adk.sessions import DatabaseSessionService # Store sessions in DB
 load_dotenv()
 
-# Set up Vertex AI authentication
-def setup_vertex_ai_auth():
-    """Set up Vertex AI authentication using service account JSON.
+db_url = os.getenv("DATABASE_URL")
+if db_url is None:
+    raise ValueError("DATABASE_URL environment variable is not set.")
 
-    Relies on Application Default Credentials (ADC). If a service account key
-    is configured via GOOGLE_APPLICATION_CREDENTIALS, we also propagate the
-    detected project ID into GOOGLE_CLOUD_PROJECT so downstream libraries that
-    rely on ADC can locate the project without manual wiring.
-    """
-    service_account_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if not service_account_path:
-        print("GOOGLE_APPLICATION_CREDENTIALS environment variable not set.")
-        return None, None
+# session_service = DatabaseSessionService(db_url=db_url)
+session_service = DatabaseSessionService(db_url=db_url)
 
-    print(f"Using service account from: {service_account_path}")
-    credentials, project = load_credentials_from_file(service_account_path)
 
-    # Ensure project is available to clients using ADC
-    if project and not os.getenv("GOOGLE_CLOUD_PROJECT"):
-        os.environ["GOOGLE_CLOUD_PROJECT"] = project
-        print(f"Set GOOGLE_CLOUD_PROJECT={project}")
-
-    # Ensure location is available for Vertex AI (required by google-genai when using Vertex backend)
-    # Priority: GOOGLE_CLOUD_LOCATION | VERTEX_LOCATION | VERTEX_AI_LOCATION | default "us-central1"
-    location = (
-        os.getenv("GOOGLE_CLOUD_LOCATION")
-        or os.getenv("VERTEX_LOCATION")
-        or os.getenv("VERTEX_AI_LOCATION")
-    )
-    if not location:
-        # Choose a widely available default for generative models
-        location = "us-central1"
-        print("GOOGLE_CLOUD_LOCATION not set. Defaulting to us-central1.")
-
-    # Normalize into GOOGLE_CLOUD_LOCATION for the google-genai client
-    os.environ["GOOGLE_CLOUD_LOCATION"] = location
-    print(f"Using GOOGLE_CLOUD_LOCATION={location}")
-
-    return credentials, project
+from .config import config
 
 def get_tools_async():
     """Gets tools from the MCP Server."""
-    tools, exit_stack = MCPToolset.from_server(
-        connection_params=SseConnectionParams(
-            url="http://localhost:8081/sse",  # Updated to match your MCP server port
-        )
-    )
+    tools, exit_stack =  MCPToolset(
+                connection_params=SseConnectionParams(
+                    url='http://localhost:8081/sse',
+                    headers={'Accept': 'text/event-stream'},
+                ),
+            )
     print("MCP Toolset created successfully.")
     return tools, exit_stack
 
 def create_agent():
-    """Creates an ADK Agent equipped with tools from the MCP Server."""
-    credentials, project = setup_vertex_ai_auth()
-    if not credentials or not project:
-        print("Authentication failed. Cannot create agent.")
-        return None
-    
-    # The google.genai.types.Model pydantic schema does not accept arbitrary fields
-    # like credentials/project_id. Provide only supported fields such as `name`.
     
     # Get MCP tools
     # tools, exit_stack = asyncio.run(get_tools_async())
     # print(f"Retrieved {len(tools)} tools from MCP server.")
+    agent_config = types.GenerateContentConfig(
+        temperature=config.temperature,
+        # max_output_tokens=config.max_output_tokens,
+        top_p=config.top_p,
+        top_k=config.top_k,
+    )
 
     agent = LlmAgent(
-        model="gemini-2.5-flash",
-        name="insurance_assistant",
-        instruction="""You are an intelligent insurance product assistant specialized in Vietnamese insurance products. 
+        model=config.model,
+        name=config.agent_name,
+        instruction="""You are an intelligent insurance product assistant specialized in Prudential Vietnam insurance products. Your name is PruBot. 
 Your role is to help customers understand insurance products, compare options, 
 and provide detailed information based on official product documents.
+Make sure always use good words on Prudential brand and products.
 
 Available Insurance Products and their codes:
-- prumax: PruMax Insurance Plan
+- prumax: PruMax Insurance Plan (also known as "PRU  - BẢO VỆ TỐI ĐA")
 - prumax-faq: PruMax FAQ
 - prumax-tnc: PruMax Terms & Conditions
-- pru-edu-saver: Prudential Education Saver Plan
+- pru-edu-saver: Prudential Education Saver Plan (also known as "PRU - TƯƠNG LAI TƯƠI SÁNG")
 - pru-edu-saver-faq: Education Saver FAQ
 - pru-edu-saver-tnc: Education Saver Terms & Conditions
+- prudtvt: PruDtvt Insurance Plan (also known as "PRU - ĐẦU TƯ VỮNG TIẾN")
+- prudtvt-faq: PruDtvt FAQ
+- prudtvt-tnc: PruDtvt Terms & Conditions
 
 
 Tools Available:
 1. list_documents - Get all available insurance documents (name and code)
 2. get_document_content(code) - Get specific product information using product code
    + Available codes: pru-edu-saver, pru-edu-saver-faq, pru-edu-saver-tnc, prumax, prumax-faq, prumax-tnc
-3. run_command(command) - Execute system commands if needed
+3. run_command(command) - Execute system commands if neededx
 
 Guidelines:
 - Use list_documents to see available products if customer asks about options
@@ -137,7 +112,39 @@ Format: structured_with_bullet_points
                 ],
             )
         ],
+        generate_content_config=agent_config,
     )
     return agent
+
+# async def run_agent(user_input: str, user_id: str = "user_1", app_name: str = "insurance_app"):
+#     """Runs the agent with the given user input."""
+#     print(f"[bold green]User Input:[/bold green] {user_input}")
+
+#     # Create or retrieve session
+#     session = await session_service.create_session(app_name=app_name, user_id=user_id)
+#     print(f"Session ID: {session.id}")
+
+#     # Create artifact service (optional, for storing files, images, etc.)
+#     artifact_service = InMemoryArtifactService()
+
+#     # Create the agent
+#     agent = create_agent()
+
+#     # Create the runner
+#     runner = Runner(
+#         agent=agent,
+#         session=session,
+#         session_service=session_service,
+#         artifact_service=artifact_service,
+#         max_iterations=3,  # Limit the number of iterations to prevent long loops
+#     )
+
+#     # Run the agent with the user input
+#     response = await runner.run(user_input)
+
+#     # Print the response
+#     print(f"[bold blue]Agent Response:[/bold blue] {response}")
+
+#     return response
 
 root_agent = create_agent()
