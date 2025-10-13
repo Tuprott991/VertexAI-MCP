@@ -37,18 +37,9 @@ from mcp.server import Server  # Underlying server abstraction used by FastMCP
 from mcp.server.sse import SseServerTransport  # The SSE transport layer
 
 from starlette.applications import Starlette  # Web framework to define routes
-from starlette.routing import Route, Mount  # Routing for HTTP and message endpoints
-from starlette.requests import Request  # HTTP request objects
+from starlette.routing import Mount, Route  # Routing for HTTP and message endpoints
 
 import uvicorn  # ASGI server to run the Starlette app
-import sys
-import os
-
-# Add parent directory to path for database imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from database import get_list_of_documents, get_document_by_code, get_recent_chat_history, format_chat_history
-
 
 # --------------------------------------------------------------------------------------
 # STEP 1: Initialize FastMCP instance — this acts as your "tool server"
@@ -93,77 +84,22 @@ async def run_command(command: str) -> str:
         return str(e)
 
 
-# TOOL 2: get all list of documents name and code
-
+# --------------------------------------------------------------------------------------
+# TOOL 2: add_numbers — adds two numbers and returns the result
+# --------------------------------------------------------------------------------------
 @mcp.tool()
-async def list_documents() -> str:
+async def add_numbers(a: float, b: float) -> float:
     """
-    Get list of all insurance documents with their codes and names.
-    
-    This tool retrieves all available insurance product documents from the database.
-    Each document has a unique code that can be used with get_document_content tool.
-    
-    Returns:
-        str: JSON string containing list of documents with code, name, and created_at
-    """
-    try:
-        documents = await get_list_of_documents()
-        return str(documents)
-    except Exception as e:
-        return f"Error retrieving documents: {str(e)}"
+    Adds two numbers and returns the sum.
 
-
-# TOOL 3: get document content by code
-
-@mcp.tool()
-async def get_document_content(code: str) -> str:
-    """
-    Get insurance product document content by product code.
-    
-    This tool retrieves the full content of a specific insurance product document
-    using its unique product code. Use list_documents first to see available codes.
-    
     Args:
-        code (str): Insurance product code (e.g., "pru-edu-saver", "prumax")
-        
+        a (float): The first number
+        b (float): The second number
+
     Returns:
-        str: Full document content for the insurance product
+        float: The sum of a and b
     """
-    try:
-        document = await get_document_by_code(code)
-        if document:
-            return document['content']
-        else:
-            return f"Insurance product document with code '{code}' not found. Use list_documents to see available codes."
-    except Exception as e:
-        return f"Error retrieving document: {str(e)}"
-
-
-# TOOL 4: get chat history for context
-
-@mcp.tool()
-async def get_chat_history(thread_id: str, limit: int = 10) -> str:
-    """
-    Get recent chat history for an insurance inquiry thread.
-    
-    This tool retrieves the conversation history for a specific thread,
-    providing context for ongoing insurance product discussions.
-    
-    Args:
-        thread_id (str): Unique identifier for the chat thread
-        limit (int): Maximum number of recent messages to retrieve (default: 10)
-        
-    Returns:
-        str: Formatted chat history with timestamps, questions, and answers
-    """
-    try:
-        history = await get_recent_chat_history(thread_id, limit)
-        if history:
-            return format_chat_history(history)
-        else:
-            return f"No chat history found for thread: {thread_id}"
-    except Exception as e:
-        return f"Error retrieving chat history: {str(e)}"
+    return a + b
 
 
 # --------------------------------------------------------------------------------------
@@ -180,7 +116,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
     Returns:
         Starlette: The full Starlette app with routes.
     """
-    # Create SSE transport handler to manage long-lived SSE connections  
+    # Create SSE transport handler to manage long-lived SSE connections
     sse = SseServerTransport("/messages/")
 
     # Handle SSE connections using Route (requires returning Response)
