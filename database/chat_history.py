@@ -1,145 +1,242 @@
+"""
+Production-ready async chat history management with proper error handling.
 
-from dotenv import load_dotenv
-from psycopg.rows import dict_row
+Features:
+- Async database operations with transaction support
+- Comprehensive error handling and logging
+- Type hints for better code safety
+- Connection pooling from connect_db module
+- Proper exception handling and rollback
+"""
+
+import logging
 from datetime import datetime
-from typing import List, Dict
-from database.connect_db import get_db_connection
+from typing import List, Dict, Optional
 from uuid import uuid4
 
-def init_chat_history_table():
+from database.connect_db import (
+    get_db_connection,
+    get_db_transaction,
+    DatabaseError
+)
+
+logger = logging.getLogger(__name__)
+
+
+class ChatHistoryError(Exception):
+    """Base exception for chat history errors"""
+    pass
+
+
+async def init_chat_history_table() -> None:
     """
-    Khởi tạo bảng message trong database nếu chưa tồn tại
-    Bảng này lưu trữ lịch sử chat bao gồm:
-    - ID tin nhắn (UUID)
-    - ID cuộc trò chuyện
-    - Câu hỏi
-    - Câu trả lời
-    - Thời gian tạo
+    Initialize the message table in database if it doesn't exist.
+    
+    Creates table structure for storing chat history:
+    - id: UUID primary key
+    - thread_id: Conversation thread identifier
+    - question: User's question
+    - answer: Chatbot's response
+    - created_at: Timestamp
+    
+    Raises:
+        ChatHistoryError: If table creation fails
     """
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
+    try:
+        async with get_db_transaction() as conn:
             # Enable UUID extension if not exists
-            cur.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+            await conn.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
             
-            # Create table if not exists
-            cur.execute("""
+            # Create message table if not exists
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS message (
                     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                     thread_id VARCHAR(255) NOT NULL, 
                     question TEXT NOT NULL,
                     answer TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
-            # Create index if not exists
-            cur.execute("""
+            # Create index for faster thread_id lookups
+            await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_message_thread_id 
                 ON message(thread_id)
             """)
-        conn.commit()
+            
+            # Create index for created_at for efficient sorting
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_message_created_at 
+                ON message(created_at DESC)
+            """)
+            
+        logger.info("Chat history table initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize chat history table: {e}", exc_info=True)
+        raise ChatHistoryError(f"Failed to initialize chat history table: {e}") from e
 
 
-def create_thread_id_for_user(user_id: int) -> str:
+async def create_thread_id_for_user(user_id: int) -> str:
     """
-    Tạo một ID cuộc trò chuyện mới bằng cách sử dụng UUID
+    Create a new conversation thread ID for a user.
+    
+    Args:
+        user_id: The user's ID
+        
+    Returns:
+        str: The newly created thread ID (UUID)
+        
+    Raises:
+        ChatHistoryError: If thread creation fails
     """
     thread_id = str(uuid4())
-    print(f"Generated thread ID: {thread_id}")
-
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            # Step 1: Insert the new thread_id into user_info table
-            cur.execute(
+    
+    try:
+        async with get_db_transaction() as conn:
+            # Append the new thread_id to user's threads array
+            await conn.execute(
                 """
                 UPDATE user_info
-                SET threads = array_append(threads, %s)
-                WHERE id = %s
+                SET threads = array_append(threads, $1)
+                WHERE id = $2
                 """,
-                (thread_id, user_id)
+                thread_id, user_id
             )
             
-            # Step 2: Commit the changes to the database
-            conn.commit()
-    return thread_id
+        logger.info(f"Created thread ID: {thread_id} for user: {user_id}")
+        return thread_id
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to create thread ID for user {user_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to create thread ID: {e}") from e
 
-def get_thread_id_for_user(user_id: int) -> List[str]:
+
+async def get_thread_ids_for_user(user_id: int) -> List[str]:
     """
-    Lấy danh sách các ID cuộc trò chuyện của người dùng từ database
+    Get list of conversation thread IDs for a user.
     
     Args:
-        user_id (int): ID của người dùng
+        user_id: The user's ID
         
     Returns:
-        List[str]: Danh sách các ID cuộc trò chuyện
+        List[str]: List of unique thread IDs
+        
+    Raises:
+        ChatHistoryError: If retrieval fails
     """
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
+    try:
+        async with get_db_connection() as conn:
+            result = await conn.fetchrow(
+                "SELECT threads FROM user_info WHERE id = $1",
+                user_id
+            )
+            
+            if result and result['threads']:
+                # Remove duplicates and return unique thread IDs
+                return list(set(result['threads']))
+            return []
+            
+    except Exception as e:
+        logger.error(
+            f"Failed to get thread IDs for user {user_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to get thread IDs: {e}") from e
+
+
+async def save_chat_history(
+    user_id: int,
+    thread_id: str,
+    question: str,
+    answer: str
+) -> str:
+    """
+    Save chat history to database within a transaction.
+    
+    Args:
+        user_id: The user's ID
+        thread_id: The conversation thread ID
+        question: User's question
+        answer: Chatbot's response
+        
+    Returns:
+        str: The message ID (UUID) of the saved chat
+        
+    Raises:
+        ChatHistoryError: If save operation fails
+    """
+    try:
+        async with get_db_transaction() as conn:
+            # Insert chat history into message table
+            result = await conn.fetchrow(
                 """
-                SELECT threads FROM user_info WHERE id = %s
+                INSERT INTO message (thread_id, question, answer)
+                VALUES ($1, $2, $3)
+                RETURNING id
                 """,
-                (user_id,)
+                thread_id, question, answer
             )
-            result = cur.fetchone()
-            # Remove duplicates and return unique thread IDs
-            return list(set(result['threads'])) if result and result['threads'] else []
-    
-def save_chat_history(user_id: int, thread_id: str, question: str, answer: str) -> Dict:
-
-    """
-    Lưu lịch sử chat vào database
-    
-    Args:
-        thread_id (str): ID của cuộc trò chuyện
-        question (str): Câu hỏi của người dùng
-        answer (str): Câu trả lời của chatbot
-        
-    Returns:
-        Dict: Thông tin lịch sử chat vừa được lưu
-    """
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            # Step 1: Insert the chat history into the 'message' table
-            cur.execute(
-                "INSERT INTO message (thread_id, question, answer) VALUES (%s, %s, %s) RETURNING id::text",
-                (thread_id, question, answer)
-            )
-
-            result = cur.fetchone()
-
-            # Step 2: Append the message_id into the course's threads list
-            cur.execute(
+            
+            message_id = str(result['id'])
+            
+            # Update user_info to include thread_id if not already present
+            await conn.execute(
                 """
                 UPDATE user_info
                 SET threads = CASE
-                    WHEN %s = ANY(threads) THEN threads
-                    ELSE array_append(threads, %s)
+                    WHEN $1 = ANY(threads) THEN threads
+                    ELSE array_append(threads, $1)
                 END 
-                WHERE id = %s
+                WHERE id = $2
                 """,
-                (thread_id, thread_id, user_id)
+                thread_id, user_id
             )
             
-            # Commit the changes after both the insert and update
-            conn.commit()
+        logger.info(
+            f"Saved chat history: message_id={message_id}, "
+            f"thread_id={thread_id}, user_id={user_id}"
+        )
+        return message_id
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to save chat history for user {user_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to save chat history: {e}") from e
 
-    return result['id']
 
-def get_recent_chat_history(thread_id: str, limit: int = 10) -> List[Dict]:
+async def get_recent_chat_history(
+    thread_id: str,
+    limit: int = 10,
+    offset: int = 0
+) -> List[Dict]:
     """
-    Lấy lịch sử chat gần đây của một cuộc trò chuyện
+    Get recent chat history for a conversation thread.
     
     Args:
-        thread_id (str): ID của cuộc trò chuyện
-        limit (int): Số lượng tin nhắn tối đa cần lấy, mặc định là 10
+        thread_id: The conversation thread ID
+        limit: Maximum number of messages to retrieve (default: 10)
+        offset: Number of messages to skip (default: 0)
         
     Returns:
-        List[Dict]: Danh sách các tin nhắn gần đây
+        List[Dict]: List of chat messages with id, thread_id, question, answer, created_at
+        
+    Raises:
+        ChatHistoryError: If retrieval fails
     """
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
+    if limit <= 0:
+        raise ValueError("Limit must be positive")
+    if offset < 0:
+        raise ValueError("Offset must be non-negative")
+        
+    try:
+        async with get_db_connection() as conn:
+            results = await conn.fetch(
                 """
                 SELECT 
                     id::text,
@@ -148,33 +245,144 @@ def get_recent_chat_history(thread_id: str, limit: int = 10) -> List[Dict]:
                     answer,
                     created_at
                 FROM message 
-                WHERE thread_id = %s 
+                WHERE thread_id = $1 
                 ORDER BY created_at DESC 
-                LIMIT %s
+                LIMIT $2 OFFSET $3
                 """,
-                (thread_id, limit)
+                thread_id, limit, offset
             )
-            return cur.fetchall()
+            
+            return [dict(row) for row in results]
+            
+    except Exception as e:
+        logger.error(
+            f"Failed to get chat history for thread {thread_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to get chat history: {e}") from e
 
-def format_chat_history(chat_history: List[Dict]) -> str:
+
+async def get_chat_message_by_id(message_id: str) -> Optional[Dict]:
     """
-    Định dạng lịch sử chat thành chuỗi văn bản
+    Get a specific chat message by its ID.
     
     Args:
-        chat_history (List[Dict]): Danh sách các tin nhắn
+        message_id: The message UUID
         
     Returns:
-        str: Chuỗi văn bản đã được định dạng
+        Optional[Dict]: Message details or None if not found
+        
+    Raises:
+        ChatHistoryError: If retrieval fails
+    """
+    try:
+        async with get_db_connection() as conn:
+            result = await conn.fetchrow(
+                """
+                SELECT 
+                    id::text,
+                    thread_id,
+                    question,
+                    answer,
+                    created_at
+                FROM message 
+                WHERE id = $1::uuid
+                """,
+                message_id
+            )
+            
+            return dict(result) if result else None
+            
+    except Exception as e:
+        logger.error(
+            f"Failed to get message {message_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to get message: {e}") from e
+
+
+async def delete_chat_message(message_id: str) -> bool:
+    """
+    Delete a specific chat message.
+    
+    Args:
+        message_id: The message UUID to delete
+        
+    Returns:
+        bool: True if deleted, False if not found
+        
+    Raises:
+        ChatHistoryError: If deletion fails
+    """
+    try:
+        async with get_db_transaction() as conn:
+            result = await conn.execute(
+                "DELETE FROM message WHERE id = $1::uuid",
+                message_id
+            )
+            
+            deleted = result.split()[-1] == "1"
+            if deleted:
+                logger.info(f"Deleted message: {message_id}")
+            return deleted
+            
+    except Exception as e:
+        logger.error(
+            f"Failed to delete message {message_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to delete message: {e}") from e
+
+
+async def delete_thread_history(thread_id: str) -> int:
+    """
+    Delete all messages in a conversation thread.
+    
+    Args:
+        thread_id: The conversation thread ID
+        
+    Returns:
+        int: Number of messages deleted
+        
+    Raises:
+        ChatHistoryError: If deletion fails
+    """
+    try:
+        async with get_db_transaction() as conn:
+            result = await conn.execute(
+                "DELETE FROM message WHERE thread_id = $1",
+                thread_id
+            )
+            
+            count = int(result.split()[-1])
+            logger.info(f"Deleted {count} messages from thread: {thread_id}")
+            return count
+            
+    except Exception as e:
+        logger.error(
+            f"Failed to delete thread {thread_id}: {e}",
+            exc_info=True
+        )
+        raise ChatHistoryError(f"Failed to delete thread: {e}") from e
+
+
+def format_chat_history(chat_history: List[Dict]) -> List[Dict[str, str]]:
+    """
+    Format chat history for conversation context.
+    
+    Args:
+        chat_history: List of chat message dictionaries
+        
+    Returns:
+        List[Dict[str, str]]: Formatted messages with role and content
     """
     formatted_history = []
-    for msg in reversed(chat_history):  # Reverse to get chronological order
+    
+    # Reverse to get chronological order (oldest first)
+    for msg in reversed(chat_history):
         formatted_history.extend([
             {"role": "human", "content": msg["question"]},
             {"role": "assistant", "content": msg["answer"]}
         ])
-    return formatted_history
-
-
-
-# Initialize table when module is imported
-init_chat_history_table() 
+        
+    return formatted_history 
