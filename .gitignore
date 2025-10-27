@@ -14,3 +14,6 @@ service_account.json
 __pycache__
 /mcp_server/__pycache__
 /database/__pycache__
+/mcp_client/service_account1.json
+/ai_agent/pru-agent/service_account1.json
+/ai_agent/service_account1.json
