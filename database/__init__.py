@@ -59,6 +59,14 @@ from database.ingestion import (
     IngestionError
 )
 
+from database.customer_data import (
+    add_customer,
+    get_customer,
+    update_customer,
+    delete_customer,
+    CustomerDataError
+)
+
 __all__ = [
     # Connection management
     "get_db_connection",
@@ -100,6 +108,13 @@ __all__ = [
     "ingest_directory",
     "ingest_files_batch",
     "IngestionError",
+
+    # Customer data
+    "add_customer",
+    "get_customer",
+    "update_customer",
+    "delete_customer",
+    "CustomerDataError",
 ]
 
 __version__ = "2.0.0"

@@ -1,0 +1,22 @@
+{
+  "age": 29,
+  "gender": "male",
+  "job": "Business Owner",
+  "income": "50000000 VND/month",
+  "marital_status": "married",
+  "dependents": 1,
+  "health_status": "fair",
+  "existing_insurance": [
+    "health insurance"
+  ],
+  "interests": [
+    "wealth accumulation",
+    "business protection"
+  ],
+  "risk_tolerance": "aggressive",
+  "insurance_needs": [
+    "investment-linked insurance",
+    "critical illness",
+    "life insurance"
+  ]
+}

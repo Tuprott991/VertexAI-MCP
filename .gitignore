@@ -6,3 +6,11 @@
 /mcp_client/.env
 /mcp_client/__pycache__/*
 /mcp_client/venv/*
+.env
+/pru-agent/service_account.json
+/pru-agent/__pycache__
+/mcp_client/service_account.json
+service_account.json
+__pycache__
+/mcp_server/__pycache__
+/database/__pycache__

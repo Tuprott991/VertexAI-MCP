@@ -1,0 +1,24 @@
+# Use a base Python image suitable for your ADK agent
+FROM python:3.10-slim-buster
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy your ADK agent code and any necessary files into the container
+COPY . /app
+
+# Install uv (if using it for package management)
+RUN pip install uv
+
+# Install dependencies using uv or pip
+# If using uv and a pyproject.toml file
+# RUN uv sync
+# If using pip and a requirements.txt file
+RUN pip install -r requirements.txt
+
+# Expose the port your ADK agent's API server will listen on
+EXPOSE 8080
+
+# Command to run your ADK agent using the ADK API server
+# Replace 'your_agent_module.AgentClass' with the actual path to your agent
+CMD ["adk", "api_server", "--agent-class", "your_agent_module.AgentClass", "--port", "8080"]

@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from dotenv import load_dotenv
-from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.llm_agent import LlmAgent, Agent
 from google.adk.artifacts.in_memory_artifact_service import (
     InMemoryArtifactService,  # Optional
 )
@@ -18,23 +18,27 @@ from rich import print
 
 from google.adk.sessions import InMemorySessionService, Session
 from google.adk.sessions import DatabaseSessionService # Store sessions in DB
+
+from google.adk.models.lite_llm import LiteLlm
+import litellm
 load_dotenv()
 
-db_url = os.getenv("DATABASE_URL")
-if db_url is None:
-    raise ValueError("DATABASE_URL environment variable is not set.")
 
-# session_service = DatabaseSessionService(db_url=db_url)
-session_service = DatabaseSessionService(db_url=db_url)
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
+os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
+MODEL_GPT_5_MINI = "openai/gpt-4o-mini"
+# Use gemini-2.0-flash-exp for native Google GenAI (uses API key, no IAM permissions needed)
+MODEL_GEMINI_2_5_FLASH = "gemini-2.0-flash-exp"
 
+mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8081/sse")
 
-from .config import config
+# from .config import config
 
 def get_tools_async():
     """Gets tools from the MCP Server."""
     tools, exit_stack =  MCPToolset(
                 connection_params=SseConnectionParams(
-                    url='http://localhost:8081/sse',
+                    url=mcp_server_url,
                     headers={'Accept': 'text/event-stream'},
                 ),
             )
@@ -47,15 +51,20 @@ def create_agent():
     # tools, exit_stack = asyncio.run(get_tools_async())
     # print(f"Retrieved {len(tools)} tools from MCP server.")
     agent_config = types.GenerateContentConfig(
-        temperature=config.temperature,
-        # max_output_tokens=config.max_output_tokens,
-        top_p=config.top_p,
-        top_k=config.top_k,
+        # temperature=config.temperature,
+        # # max_output_tokens=config.max_output_tokens,
+        # top_p=config.top_p,
+        # top_k=config.top_k,
     )
 
     agent = LlmAgent(
-        model=config.model,
-        name=config.agent_name,
+        # Use native model name for Google GenAI (uses GEMINI_API_KEY from .env)
+        model=MODEL_GEMINI_2_5_FLASH,
+        # To use LiteLlm with Vertex AI, you would need:
+        # model = LiteLlm(model="vertex_ai/gemini-2.0-flash-exp"),
+        # and proper IAM permissions on your service account
+        name="PruBot",
+        description="An intelligent insurance product assistant specialized in Prudential Vietnam insurance products.",
         instruction="""You are an intelligent insurance product assistant specialized in Prudential Vietnam insurance products. Your name is PruBot. 
 Your role is to help customers understand insurance products, compare options, 
 and provide detailed information based on official product documents.
@@ -78,6 +87,8 @@ Tools Available:
 2. get_document_content(code) - Get specific product information using product code
    + Available codes: pru-edu-saver, pru-edu-saver-faq, pru-edu-saver-tnc, prumax, prumax-faq, prumax-tnc
 3. run_command(command) - Execute system commands if neededx
+4. get_customer_info(customer_id) - Retrieve customer information by ID
+5. calculate_premium(sum_insured, age, gender, product_code) - Calculate annual premium based on sum insured, age, and gender
 
 Guidelines:
 - Use list_documents to see available products if customer asks about options
@@ -93,7 +104,7 @@ Format: structured_with_bullet_points
         tools=[
             MCPToolset(
                 connection_params=SseConnectionParams(
-                    url='http://localhost:8081/sse',
+                    url=mcp_server_url,
                     headers={'Accept': 'text/event-stream'},
                 ),
                 # don't want agent to do write operation
@@ -109,6 +120,8 @@ Format: structured_with_bullet_points
                     'list_documents',
                     'get_document_content',
                     'run_command',
+                    'get_customer_info',
+                    'calculate_premium',
                 ],
             )
         ],
@@ -116,35 +129,5 @@ Format: structured_with_bullet_points
     )
     return agent
 
-# async def run_agent(user_input: str, user_id: str = "user_1", app_name: str = "insurance_app"):
-#     """Runs the agent with the given user input."""
-#     print(f"[bold green]User Input:[/bold green] {user_input}")
-
-#     # Create or retrieve session
-#     session = await session_service.create_session(app_name=app_name, user_id=user_id)
-#     print(f"Session ID: {session.id}")
-
-#     # Create artifact service (optional, for storing files, images, etc.)
-#     artifact_service = InMemoryArtifactService()
-
-#     # Create the agent
-#     agent = create_agent()
-
-#     # Create the runner
-#     runner = Runner(
-#         agent=agent,
-#         session=session,
-#         session_service=session_service,
-#         artifact_service=artifact_service,
-#         max_iterations=3,  # Limit the number of iterations to prevent long loops
-#     )
-
-#     # Run the agent with the user input
-#     response = await runner.run(user_input)
-
-#     # Print the response
-#     print(f"[bold blue]Agent Response:[/bold blue] {response}")
-
-#     return response
 
 root_agent = create_agent()

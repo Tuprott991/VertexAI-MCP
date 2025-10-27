@@ -1,0 +1,13 @@
+1. Tạo 1 số mockup data cho 10 người khác nhau với persona của họ
+    + số CCCD
+    + thông tin khách hàng...
+
+-> just add 27/10/2025
+
+2. Tạo thêm tools tính toán (tuổi, tiền bảo hiểm,...)
+-> just add tools base on sum_insured, age, and gender
+
+
+3. Thêm các lớp bảo mật
+
+4. Xem thêm về gRPC để tăng tốc phần API.

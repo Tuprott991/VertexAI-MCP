@@ -40,7 +40,7 @@ export type ChatMessage = {
   timestamp?: number;
 };
 
-export const BRAND_APP_NAME = "adk-agent";
+export const BRAND_APP_NAME = "pru-agent";
 
 function readLocal(key: string): string | null {
   try {
