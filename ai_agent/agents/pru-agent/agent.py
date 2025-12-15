@@ -1,7 +1,8 @@
 import asyncio
 import json
 import os
-from typing import Any
+from typing import Any, Optional
+import atexit
 
 from dotenv import load_dotenv
 from google.adk.agents.llm_agent import LlmAgent, Agent
@@ -27,12 +28,19 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
 os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
 MODEL_GPT_5_MINI = "openai/gpt-4o-mini"
+
+
 # Use gemini-2.0-flash-exp for native Google GenAI (uses API key, no IAM permissions needed)
-MODEL_GEMINI_2_5_FLASH = "gemini-2.0-flash-exp"
+MODEL_GEMINI_2_5_FLASH = "gemini-2.5-flash"
 
 mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8081/sse")
 
 # from .config import config
+
+# Global singleton MCP toolset to avoid reconnecting on every request
+_mcp_toolset: Optional[MCPToolset] = None
+_mcp_toolset_lock = asyncio.Lock()
+
 
 def get_tools_async():
     """Gets tools from the MCP Server."""
@@ -45,14 +53,54 @@ def get_tools_async():
     print("MCP Toolset created successfully.")
     return tools, exit_stack
 
+
+def get_mcp_toolset():
+    """Get or create a persistent MCP toolset (sing leton pattern).
+    
+    This avoids creating new SSE connections on every request,
+    significantly improving performance.
+    """
+    global _mcp_toolset
+    
+    if _mcp_toolset is None:
+        print("[INFO] Creating persistent MCP toolset connection...")
+        _mcp_toolset = MCPToolset(
+            connection_params=SseConnectionParams(
+                url=mcp_server_url,
+                headers={'Accept': 'text/event-stream'},
+            ),
+            tool_filter=[
+                'list_documents',
+                'get_document_content',
+                'run_command',
+                'get_customer_info',
+                'calculate_premium',
+                'web_search',
+            ],
+        )
+        print(f"[INFO] MCP toolset created successfully. Connected to: {mcp_server_url}")
+    
+    return _mcp_toolset
+
+
+def cleanup_mcp_connection():
+    """Cleanup MCP connection on application shutdown."""
+    global _mcp_toolset
+    if _mcp_toolset is not None:
+        print("[INFO] Cleaning up MCP toolset connection...")
+        _mcp_toolset = None
+
+# Register cleanup handler
+atexit.register(cleanup_mcp_connection)
+
 def create_agent():
     
     # Get MCP tools
     # tools, exit_stack = asyncio.run(get_tools_async())
     # print(f"Retrieved {len(tools)} tools from MCP server.")
     agent_config = types.GenerateContentConfig(
-        # temperature=config.temperature,
-        # # max_output_tokens=config.max_output_tokens,
+        # temperature=config.temperature,   
+        # # max_output_tokens=config.max_output_tokens,     
         # top_p=config.top_p,
         # top_k=config.top_k,
     )
@@ -60,6 +108,9 @@ def create_agent():
     agent = LlmAgent(
         # Use native model name for Google GenAI (uses GEMINI_API_KEY from .env)
         model=MODEL_GEMINI_2_5_FLASH,
+        # use model = litellm(MODEL_GPT_5_MINI)  to use LiteLlm wrapper
+        # use model = 
+
         # To use LiteLlm with Vertex AI, you would need:
         # model = LiteLlm(model="vertex_ai/gemini-2.0-flash-exp"),
         # and proper IAM permissions on your service account
@@ -102,28 +153,7 @@ Your answers must be in Vietnamese.
 Format: structured_with_bullet_points
 """,
         tools=[
-            MCPToolset(
-                connection_params=SseConnectionParams(
-                    url=mcp_server_url,
-                    headers={'Accept': 'text/event-stream'},
-                ),
-                # don't want agent to do write operation
-                # you can also do below
-                # tool_filter=lambda tool, ctx=None: tool.name
-                # not in [
-                #     'write_file',
-                #     'edit_file',
-                #     'create_directory',
-                #     'move_file',
-                # ],
-                tool_filter=[
-                    'list_documents',
-                    'get_document_content',
-                    'run_command',
-                    'get_customer_info',
-                    'calculate_premium',
-                ],
-            )
+            get_mcp_toolset()  # Use persistent singleton connection
         ],
         generate_content_config=agent_config,
     )

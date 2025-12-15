@@ -60,7 +60,7 @@ if __name__ == "__main__":
     # Cloud Run provides a PORT environment variable that specifies which port to use
     # We use os.environ.get() to read this variable, with 8080 as a fallback
     # This ensures compatibility with both local development and Cloud Run deployment
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 8000))
     
     # Start the uvicorn ASGI server
     # - app: The FastAPI application instance created above

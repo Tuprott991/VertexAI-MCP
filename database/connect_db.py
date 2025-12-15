@@ -36,13 +36,14 @@ DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_HOST = os.getenv("POSTGRES_HOST")
 DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 
-# Connection pool configuration
-MIN_CONNECTIONS = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
-MAX_CONNECTIONS = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
-CONNECTION_TIMEOUT = int(os.getenv("DB_CONNECTION_TIMEOUT", "30"))
-COMMAND_TIMEOUT = int(os.getenv("DB_COMMAND_TIMEOUT", "60"))
+# Connection pool configuration - OPTIMIZED for performance
+# Increased min connections for faster response, reduced timeouts for quicker failure detection
+MIN_CONNECTIONS = int(os.getenv("DB_MIN_CONNECTIONS", "10"))  # Increased from 5 to reduce cold starts
+MAX_CONNECTIONS = int(os.getenv("DB_MAX_CONNECTIONS", "30"))  # Increased from 20 for higher concurrency
+CONNECTION_TIMEOUT = int(os.getenv("DB_CONNECTION_TIMEOUT", "10"))  # Reduced from 30s - fail fast
+COMMAND_TIMEOUT = int(os.getenv("DB_COMMAND_TIMEOUT", "15"))  # Reduced from 60s - queries should be fast
 MAX_QUERIES = int(os.getenv("DB_MAX_QUERIES", "50000"))
-MAX_INACTIVE_CONNECTION_LIFETIME = int(os.getenv("DB_MAX_INACTIVE_LIFETIME", "300"))
+MAX_INACTIVE_CONNECTION_LIFETIME = int(os.getenv("DB_MAX_INACTIVE_LIFETIME", "180"))  # Reduced from 300s
 
 # Global connection pool
 _connection_pool: Optional[Pool] = None

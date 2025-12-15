@@ -1,6 +1,0 @@
-# Requirement for running the adk-agent
-google-adk==1.14.1
-fastapi
-
-agent-starter-pack
-psycopg2-binary

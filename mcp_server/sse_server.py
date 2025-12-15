@@ -44,6 +44,9 @@ from starlette.middleware.cors import CORSMiddleware  # CORS middleware for cros
 import uvicorn  # ASGI server to run the Starlette app
 import sys
 import os
+import aiohttp
+import json
+import asyncio
 
 # Add parent directory to path for database imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -251,8 +254,97 @@ async def calculate_premium(sum_insured: int, age: int, gender: str, product_cod
         return f"Annual premium is {annual_premium:,.0f} VND"
 
     except Exception as e:
-        return f"Error calculating premium: {str(e)}"
+        return f"Error calculating premium: {str(e)}"   
 
+
+@mcp.tool()
+async def web_search(query: str, depth: str = "standard", output_type: str = "searchResults") -> str:
+    """
+    Perform a web search using Linkup API and return summarized results.
+    
+    This tool searches the web for current information using Linkup's search API.
+    Perfect for finding up-to-date information about insurance products, regulations, etc.
+    
+    Args:
+        query (str): The search query string (e.g., "Prudential insurance products Vietnam")
+        depth (str): Search depth - "standard" (default) or "deep" for more comprehensive results
+        output_type (str): Response format - "searchResults" (default), "sourcedAnswer", or "structured"
+    
+    Returns:
+        str: Formatted search results with titles, descriptions, and URLs
+    """
+    try:
+        # Get Linkup API key from environment variable
+        LINKUP_API_KEY = os.environ.get("LINKUP_API_KEY")
+        if not LINKUP_API_KEY:
+            return "Error: LINKUP_API_KEY environment variable not set. Please set your Linkup API key."
+        
+        async with aiohttp.ClientSession() as session:
+            url = "https://api.linkup.so/v1/search"
+            headers = {
+                "Authorization": f"Bearer {LINKUP_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "q": query,
+                "depth": depth,
+                "outputType": output_type
+            }
+            
+            async with session.post(
+                url, 
+                headers=headers, 
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    results = []
+                    
+                    # Handle different output types
+                    if output_type == "sourcedAnswer" and "answer" in data:
+                        results.append(f"**Answer:**\n{data['answer']}")
+                        if "sources" in data:
+                            results.append("\n**Sources:**")
+                            for i, source in enumerate(data["sources"][:5], 1):
+                                results.append(f"{i}. {source.get('name', 'Unknown')} - {source.get('url', '')}")
+                    
+                    elif output_type == "searchResults" and "results" in data:
+                        results.append("**Search Results:**")
+                        for i, result in enumerate(data["results"][:10], 1):
+                            title = result.get("name", "No title")
+                            url_link = result.get("url", "")
+                            content = result.get("content", "No description available")
+                            
+                            results.append(f"\n{i}. **{title}**")
+                            results.append(f"   {content[:200]}...")  # Truncate long descriptions
+                            results.append(f"   🔗 {url_link}")
+                    
+                    elif output_type == "structured" and "structured" in data:
+                        results.append(f"**Structured Answer:**\n{json.dumps(data['structured'], indent=2)}")
+                    
+                    if results:
+                        return "\n".join(results)
+                    else:
+                        return f"No results found for '{query}'. Try rephrasing your search query."
+                
+                elif response.status == 401:
+                    return "Error: Invalid Linkup API key. Please check your LINKUP_API_KEY."
+                elif response.status == 429:
+                    return "Error: Rate limit exceeded. Please try again later."
+                else:
+                    error_text = await response.text()
+                    return f"Search failed with status {response.status}: {error_text}"
+                    
+    except aiohttp.ClientError as e:
+        return f"Network error during search: {str(e)}"
+    except json.JSONDecodeError:
+        return "Error parsing search results from Linkup API"
+    except asyncio.TimeoutError:
+        return "Search request timed out. Please try again with a simpler query."
+    except Exception as e:
+        return f"Error performing web search: {str(e)}"
 
 # --------------------------------------------------------------------------------------
 # STEP 2: Create the Starlette app to expose the tools via HTTP (using SSE)

@@ -11,3 +11,33 @@
 3. Thêm các lớp bảo mật
 
 4. Xem thêm về gRPC để tăng tốc phần API.
+
+
+-------------------------------------------------------
+
+-> Voice AI: thu âm giọng nói khách hàng -> trích xuất ra câu ..... 
+
+-> Đồng ý hay không đồng ý hợp đồng đó
+-> Có thể câu đó là tôi đang suy ng ĩ, tôi đồng ý....
+
+
+-> Prompt engineer for better voice structred output
+
+
+-> If use azure, what pipeline it could be 
+
+
+-> Extract các thông tin đoạn hội thoại (Thông tin khach hang, tu van vien, dia chi,....)
+""" Consent:
+-> Khach hang dc tu van vien day du hay chua
+-> khach hang dong y mua san pham nay hay chua
+"""
+
+
+
+
+
+---------------------------------------------------
+
+
+Add like and dislike button, add a Mic....
